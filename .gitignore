@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+data_generator/output/
+.e2e_lakehouse/
+mlruns/
+mlflow.db
+api/client/node_modules/
+.ipynb_checkpoints/

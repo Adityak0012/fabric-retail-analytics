@@ -1,0 +1,151 @@
+// =====================================================================
+// DAX measures for the "Retail Analytics" Direct Lake semantic model.
+// Create a table called _Measures (Enter data, one dummy column, then hide
+// the column) and add each measure below to it. Use display folders.
+// =====================================================================
+
+// ---------- Sales ----------------------------------------------------
+Net Revenue (INR) =
+    SUM ( gold_fact_sales[net_revenue_inr] )
+
+Gross Margin (INR) =
+    SUM ( gold_fact_sales[gross_margin_inr] )
+
+Gross Margin % =
+    DIVIDE ( [Gross Margin (INR)], [Net Revenue (INR)] )
+
+Orders =
+    CALCULATE (
+        DISTINCTCOUNT ( gold_fact_sales[transaction_id] ),
+        gold_fact_sales[transaction_type] = "sale"
+    )
+
+Average Order Value (INR) =
+    DIVIDE ( [Net Revenue (INR)], [Orders] )
+
+Units Sold =
+    CALCULATE ( SUM ( gold_fact_sales[quantity] ), gold_fact_sales[transaction_type] = "sale" )
+
+Units Returned =
+    CALCULATE ( SUM ( gold_fact_sales[quantity] ), gold_fact_sales[transaction_type] = "return" )
+
+Return Rate % =
+    DIVIDE ( [Units Returned], [Units Sold] )
+
+// ---------- Time intelligence (requires gold_dim_date marked as date table) ----
+Net Revenue LY =
+    CALCULATE ( [Net Revenue (INR)], SAMEPERIODLASTYEAR ( gold_dim_date[date] ) )
+
+Net Revenue YoY % =
+    DIVIDE ( [Net Revenue (INR)] - [Net Revenue LY], [Net Revenue LY] )
+
+Net Revenue MTD =
+    TOTALMTD ( [Net Revenue (INR)], gold_dim_date[date] )
+
+Net Revenue FYTD =          // Indian fiscal year ends 31 March
+    TOTALYTD ( [Net Revenue (INR)], gold_dim_date[date], "31/3" )
+
+Net Revenue 7D Rolling =
+    CALCULATE (
+        [Net Revenue (INR)],
+        DATESINPERIOD ( gold_dim_date[date], MAX ( gold_dim_date[date] ), -7, DAY )
+    )
+
+// ---------- Channel mix ----------------------------------------------
+In-store Share % =
+    DIVIDE (
+        CALCULATE ( [Net Revenue (INR)], gold_fact_sales[channel] = "in_store" ),
+        [Net Revenue (INR)]
+    )
+
+// ---------- Customers -------------------------------------------------
+Active Customers =          // durable customer_id, so SCD2 versions aren't double counted
+    CALCULATE (
+        DISTINCTCOUNT ( gold_dim_customer[customer_id] ),
+        // table filter on the fact reaches the dimension through the expanded table
+        CALCULATETABLE (
+            gold_fact_sales,
+            gold_fact_sales[transaction_type] = "sale",
+            gold_fact_sales[customer_sk] <> -1
+        )
+    )
+
+Revenue per Customer (INR) =
+    DIVIDE ( [Net Revenue (INR)], [Active Customers] )
+
+// ---------- Churn ----------------------------------------------------
+Latest Score Date =
+    CALCULATE ( MAX ( gold_churn_scores[as_of] ), REMOVEFILTERS ( gold_churn_scores ) )
+
+Customers Scored =
+    CALCULATE ( COUNTROWS ( gold_churn_scores ), gold_churn_scores[as_of] = [Latest Score Date] )
+
+High Risk Customers =
+    CALCULATE (
+        COUNTROWS ( gold_churn_scores ),
+        gold_churn_scores[as_of] = [Latest Score Date],
+        gold_churn_scores[risk_band] = "High"
+    )
+
+Avg Churn Probability =
+    CALCULATE ( AVERAGE ( gold_churn_scores[churn_probability] ), gold_churn_scores[as_of] = [Latest Score Date] )
+
+Revenue at Risk (INR) =     // last-365-day revenue of High-risk customers
+    CALCULATE (
+        SUM ( gold_churn_scores[revenue_365d_inr] ),
+        gold_churn_scores[as_of] = [Latest Score Date],
+        gold_churn_scores[risk_band] = "High"
+    )
+
+// ---------- Inventory -------------------------------------------------
+Latest Inventory Date Key =
+    CALCULATE ( MAX ( gold_fact_inventory_daily[date_key] ), REMOVEFILTERS ( gold_dim_date ) )
+
+Stock Value (INR) =
+    CALCULATE (
+        SUM ( gold_fact_inventory_daily[stock_value_inr] ),
+        gold_fact_inventory_daily[date_key] = [Latest Inventory Date Key]
+    )
+
+SKUs Below Reorder =
+    CALCULATE (
+        COUNTROWS ( gold_fact_inventory_daily ),
+        gold_fact_inventory_daily[date_key] = [Latest Inventory Date Key],
+        gold_fact_inventory_daily[is_below_reorder] = TRUE ()
+    )
+
+Stockout Rate % =
+    DIVIDE (
+        CALCULATE ( COUNTROWS ( gold_fact_inventory_daily ), gold_fact_inventory_daily[is_stockout] = TRUE () ),
+        COUNTROWS ( gold_fact_inventory_daily )
+    )
+
+// ---------- Customer service -------------------------------------------
+Cases Opened =
+    COUNTROWS ( gold_fact_support_case )
+
+Open Cases =
+    CALCULATE ( COUNTROWS ( gold_fact_support_case ), gold_fact_support_case[is_open] = TRUE () )
+
+Avg Resolution Hours =
+    AVERAGE ( gold_fact_support_case[resolution_hours] )
+
+Avg CSAT =
+    AVERAGE ( gold_fact_support_case[csat_score] )
+
+Avg Review Rating =
+    AVERAGE ( gold_fact_review[rating] )
+
+// ---------- Data quality (table ops_dq_results) ----------------------------
+DQ Checks =
+    COUNTROWS ( ops_dq_results )
+
+DQ Pass Rate % =
+    DIVIDE ( CALCULATE ( COUNTROWS ( ops_dq_results ), ops_dq_results[success] = TRUE () ), [DQ Checks] )
+
+DQ Critical Failures =
+    CALCULATE (
+        COUNTROWS ( ops_dq_results ),
+        ops_dq_results[success] = FALSE (),
+        ops_dq_results[severity] = "critical"
+    )

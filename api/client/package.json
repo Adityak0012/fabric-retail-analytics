@@ -1,0 +1,10 @@
+{
+  "name": "fabric-retail-api-client",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Calls the Fabric API for GraphQL over the retail Gold layer",
+  "scripts": { "start": "node index.mjs" },
+  "engines": { "node": ">=18" },
+  "dependencies": { "@azure/identity": "^4.4.0" }
+}
